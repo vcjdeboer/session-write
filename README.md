@@ -30,6 +30,8 @@ swamp model method run writer validate \
 With `strict=true` it **fails (non-zero)** when the fill is invalid, so a swamp
 workflow can gate downstream steps on a valid fill.
 
+The example templates used above — `lm-report.qmd`, `cars-good.qmd`, and the `targets-lm/` pipeline — live in [`session-suite`](https://github.com/vcjdeboer/session-suite/tree/main/templates).
+
 ## How it works
 
 A template is a `.qmd` (frontmatter + frozen body) or a plain config `.yaml`.
