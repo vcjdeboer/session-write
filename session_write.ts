@@ -147,7 +147,7 @@ interface Slot {
 /** The session-write model definition. */
 export const model = {
   type: "@vcjdeboer/session-write",
-  version: "2026.06.21.3",
+  version: "2026.06.21.4",
   globalArguments: z.object({}),
   resources: {
     "validation": {
