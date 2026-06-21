@@ -12,7 +12,7 @@
  * @module
  */
 import { z } from "npm:zod@4";
-import { parse as parseYaml } from "npm:yaml@2.5.0";
+import { parse as parseYaml } from "npm:yaml@2.8.3";
 
 const ValidateArgsSchema = z.object({
   /** Path to the ORIGINAL template .qmd (defines the frozen body + swamp.slots). */
@@ -147,7 +147,7 @@ interface Slot {
 /** The session-write model definition. */
 export const model = {
   type: "@vcjdeboer/session-write",
-  version: "2026.06.21.4",
+  version: "2026.06.21.5",
   globalArguments: z.object({}),
   resources: {
     "validation": {
