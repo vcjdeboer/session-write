@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@vcjdeboer/session-write"
-version: "2026.06.21.5"
+version: "2026.06.21.6"
 description: "Governed parameter-fill of analysis templates: an AI fills only the typed parameter slots of a frozen template, and the validate method is the deterministic gate that asserts the structure was untouched and every fill satisfies its slot contract — bounded, validated, reproducible AI authoring."
 repository: "https://github.com/vcjdeboer/session-write"
 paths:
