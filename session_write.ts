@@ -27,7 +27,9 @@ const ValidateArgsSchema = z.object({
    * validity gate. Defaults false (soft) — the validation resource is still
    * written either way, so the failure reason stays inspectable.
    */
-  strict: z.preprocess((v) => v === true || v === "true", z.boolean()).default(false),
+  strict: z.preprocess((v) => v === true || v === "true", z.boolean()).default(
+    false,
+  ),
 });
 
 const SlotResultSchema = z.object({
@@ -59,7 +61,9 @@ const ValidationSchema = z.object({
 async function sha256HexFile(path: string): Promise<string> {
   const bytes = await Deno.readFile(path);
   const d = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(d)).map((b) =>
+    b.toString(16).padStart(2, "0")
+  ).join("");
 }
 
 /** Directory of a path (for resolving frozen files relative to the fill file). */
@@ -84,8 +88,21 @@ function escapeRe(s: string): string {
 }
 
 const FORMULA_FNS = new Set([
-  "I", "log", "log2", "log10", "sqrt", "exp", "poly", "factor", "as.factor",
-  "scale", "ns", "bs", "sin", "cos", "as.formula",
+  "I",
+  "log",
+  "log2",
+  "log10",
+  "sqrt",
+  "exp",
+  "poly",
+  "factor",
+  "as.factor",
+  "scale",
+  "ns",
+  "bs",
+  "sin",
+  "cos",
+  "as.formula",
 ]);
 
 /** Identifier tokens in a formula that aren't known function names. */
@@ -105,10 +122,18 @@ function quadraticThroughOrigin(formula: string, xcol: string) {
   const throughOrigin = /(^|[^\w])-\s*1(\b|$)/.test(formula) ||
     /\+\s*0(\b|$)/.test(formula);
   if (!hasSquare) {
-    return { ok: false, reason: "contract quadratic_through_origin: missing a quadratic term — need I(x^2) or poly(x, 2)" };
+    return {
+      ok: false,
+      reason:
+        "contract quadratic_through_origin: missing a quadratic term — need I(x^2) or poly(x, 2)",
+    };
   }
   if (!throughOrigin) {
-    return { ok: false, reason: "contract quadratic_through_origin: not through the origin — need `- 1` or `+ 0`" };
+    return {
+      ok: false,
+      reason:
+        "contract quadratic_through_origin: not through the origin — need `- 1` or `+ 0`",
+    };
   }
   return { ok: true, reason: "" };
 }
@@ -126,7 +151,8 @@ export const model = {
   globalArguments: z.object({}),
   resources: {
     "validation": {
-      description: "Result of validating a filled template against its slot contracts",
+      description:
+        "Result of validating a filled template against its slot contracts",
       schema: ValidationSchema,
       lifetime: "infinite",
       garbageCollection: 50,
@@ -145,7 +171,9 @@ export const model = {
             instanceName: string,
             data: unknown,
           ) => Promise<{ version: number }>;
-          logger: { info: (msg: string, props?: Record<string, unknown>) => void };
+          logger: {
+            info: (msg: string, props?: Record<string, unknown>) => void;
+          };
         },
       ): Promise<{ dataHandles: unknown[] }> => {
         const tmplText = await Deno.readTextFile(args.templatePath);
@@ -153,8 +181,14 @@ export const model = {
         const tmpl = splitQmd(tmplText);
         const fill = splitQmd(fillText);
 
-        const tmplYaml = (parseYaml(tmpl.yaml) ?? {}) as Record<string, unknown>;
-        const fillYaml = (parseYaml(fill.yaml) ?? {}) as Record<string, unknown>;
+        const tmplYaml = (parseYaml(tmpl.yaml) ?? {}) as Record<
+          string,
+          unknown
+        >;
+        const fillYaml = (parseYaml(fill.yaml) ?? {}) as Record<
+          string,
+          unknown
+        >;
 
         // (a) structure frozen: body identical + all non-`params` YAML identical.
         const stripParams = (y: Record<string, unknown>) => {
@@ -172,7 +206,9 @@ export const model = {
         };
         const slots = swamp.slots ?? {};
         const params = (fillYaml.params ?? {}) as Record<string, string>;
-        const columns = args.columns.split(",").map((s) => s.trim()).filter(Boolean);
+        const columns = args.columns.split(",").map((s) => s.trim()).filter(
+          Boolean,
+        );
 
         const results = [];
         for (const [name, slot] of Object.entries(slots)) {
@@ -188,7 +224,9 @@ export const model = {
             ok = true;
           } else if (slot.type === "column") {
             ok = columns.length === 0 || columns.includes(value);
-            if (!ok) reason = `column "${value}" is not in [${columns.join(", ")}]`;
+            if (!ok) {
+              reason = `column "${value}" is not in [${columns.join(", ")}]`;
+            }
           } else if (slot.type === "formula") {
             if (!value.includes("~")) {
               ok = false;
@@ -200,7 +238,9 @@ export const model = {
                 : [];
               if (unknown.length) {
                 ok = false;
-                reason = `formula variables not in data: [${unknown.join(", ")}]`;
+                reason = `formula variables not in data: [${
+                  unknown.join(", ")
+                }]`;
               } else if (slot.contract === "quadratic_through_origin") {
                 const c = quadraticThroughOrigin(value, String(params.x ?? ""));
                 ok = c.ok;
@@ -224,7 +264,9 @@ export const model = {
           try {
             const actual = await sha256HexFile(`${baseDir}/${rel}`);
             ok = actual === expected;
-            if (!ok) reason = `frozen file "${rel}" was altered (sha256 mismatch)`;
+            if (!ok) {
+              reason = `frozen file "${rel}" was altered (sha256 mismatch)`;
+            }
           } catch {
             reason = `frozen file "${rel}" is missing`;
           }
@@ -259,10 +301,14 @@ export const model = {
           const reasons = [
             ...(allFrozen ? [] : ["structure / frozen-file check failed"]),
             ...frozenFiles.filter((f) => !f.ok).map((f) => f.reason),
-            ...results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.reason}`),
+            ...results.filter((r) => !r.ok).map((r) =>
+              `${r.name}: ${r.reason}`
+            ),
           ].filter(Boolean);
           throw new Error(
-            `validate (strict): fill is INVALID — ${reasons.join("; ") || "see the validation resource"}`,
+            `validate (strict): fill is INVALID — ${
+              reasons.join("; ") || "see the validation resource"
+            }`,
           );
         }
         return { dataHandles: [handle] };
