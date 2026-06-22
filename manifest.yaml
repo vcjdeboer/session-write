@@ -1,7 +1,7 @@
 manifestVersion: 1
 name: "@vcjdeboer/session-write"
-version: "2026.06.21.6"
-description: "Governed parameter-fill of analysis templates: an AI fills only the typed parameter slots of a frozen template, and the validate method is the deterministic gate that asserts the structure was untouched and every fill satisfies its slot contract — bounded, validated, reproducible AI authoring."
+version: "2026.06.22.1"
+description: "Governed parameter-fill of analysis templates: an AI fills only the typed parameter slots of a frozen template, and the validate method is the deterministic gate that asserts the structure was untouched and every fill satisfies its slot contract — bounded, validated, reproducible AI authoring. Also carries the R-project on-ramp: the init method wires a project to record its work (writer init), with repoDir auto-resolved from SWAMP_REPO_DIR."
 repository: "https://github.com/vcjdeboer/session-write"
 paths:
   base: manifest
@@ -15,3 +15,5 @@ labels:
   - validation
   - templates
   - reproducibility
+  - r-project
+  - onboarding
