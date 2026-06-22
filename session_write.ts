@@ -14,6 +14,18 @@
 import { z } from "npm:zod@4";
 import { parse as parseYaml } from "jsr:@std/yaml@1.1.1";
 
+/** Resolve the control-plane repo dir to bake into start_swamp(repo=).
+ *  Order: explicit arg (--input repoDir) → SWAMP_REPO_DIR env → cwd.
+ *  NOTE: `--repo-dir` is consumed by the CLI to locate the model and is NOT visible
+ *  in-method; set the baked repo via the `SWAMP_REPO_DIR=...` env prefix or `--input repoDir=`. */
+export function resolveRepoDir(
+  arg: string,
+  envVal: string,
+  cwd: string,
+): string {
+  return (arg.trim() || envVal.trim() || cwd).replace(/\/+$/, "");
+}
+
 const ValidateArgsSchema = z.object({
   /** Path to the ORIGINAL template .qmd (defines the frozen body + swamp.slots). */
   templatePath: z.string().min(1),
@@ -144,10 +156,155 @@ interface Slot {
   contract?: string;
 }
 
+/** Arguments for `init`: wire a (new) R project to the suite. */
+const InitArgsSchema = z.object({
+  /** Folder of the R project to wire — the `.qmd` is written here. */
+  projectPath: z.string().min(1),
+  /**
+   * Control-plane repo dir baked into the recorder call (`start_swamp(repo=)`).
+   * Defaults to the cwd the method runs in (the control plane). Pass explicitly
+   * if running the method from elsewhere.
+   */
+  repoDir: z.string().default(""),
+  /** Name of the quarto file written into the project. */
+  fileName: z.string().default("swamp.qmd"),
+  /**
+   * Absolute path to the `swamp` CLI binary, baked into the recorder call
+   * (`start_swamp(swamp=)`). RStudio launched from the GUI has a minimal PATH
+   * that usually omits `~/.local/bin`, so the recorder's bare-name `swamp` child
+   * can't be spawned and records ship-fail silently. Default ""  → resolve it at
+   * init time (the method runs where swamp IS resolvable) and write the answer
+   * down. Pass explicitly to override the resolved path.
+   */
+  swampBin: z.string().default(""),
+  /** Overwrite an existing file (default: keep it, so user edits survive). */
+  force: z.preprocess((v) => v === true || v === "true", z.boolean()).default(
+    false,
+  ),
+});
+
+const InitResultSchema = z.object({
+  projectPath: z.string(),
+  file: z.string(),
+  repoDir: z.string(),
+  /** False when the file already existed and `force` was not set (kept as-is). */
+  written: z.boolean(),
+  /** Absolute swamp binary baked into start_swamp(swamp=), or "swamp" if unresolved. */
+  swampBin: z.string(),
+  /** Path to the .claude/settings.local.json that records SWAMP_REPO_DIR for Claude. */
+  settings: z.string(),
+  timestamp: z.string(),
+});
+
+/**
+ * Resolve the absolute path of the `swamp` CLI to bake into `start_swamp(swamp=)`.
+ * RStudio's GUI PATH often omits `~/.local/bin`, so the bare name fails to spawn
+ * there; `init` runs in the control-plane shell where swamp IS resolvable, so we
+ * record the answer once. Order: explicit arg → the running swamp binary (the
+ * extension executes inside the deno-compiled swamp binary, so `Deno.execPath()`
+ * IS the CLI) → a PATH scan → bare "swamp" (preserves prior behavior if nothing
+ * resolves). Every probe is guarded so a denied permission just falls through.
+ */
+async function resolveSwampBin(explicit: string): Promise<string> {
+  const e = explicit.trim();
+  if (e) return e;
+  try {
+    const p = Deno.execPath();
+    if (p && /(^|\/)swamp$/.test(p)) return p;
+  } catch { /* execPath not granted — fall through */ }
+  try {
+    const path = Deno.env.get("PATH") ?? "";
+    for (const d of path.split(":")) {
+      if (!d) continue;
+      const cand = `${d.replace(/\/+$/, "")}/swamp`;
+      try {
+        const st = await Deno.stat(cand);
+        if (st.isFile) return cand;
+      } catch { /* not in this dir */ }
+    }
+  } catch { /* env not granted — fall through */ }
+  return "swamp";
+}
+
+/**
+ * The single quarto file that makes an R project record. Its setup chunk installs
+ * swamprecord on first run (via pak/renv/remotes, whichever is present) and arms
+ * the recorder against the control plane — no `.Rprofile`, no nix, no engine.
+ * Runs in the user's own RStudio.
+ */
+function swampQmd(repoDir: string, swampBin: string): string {
+  // Bake the resolved swamp binary into the recorder call only when we have an
+  // absolute path; if resolution fell back to the bare name, omit the arg so the
+  // call is identical to the historical template (relies on PATH).
+  const startCall = swampBin && swampBin !== "swamp"
+    ? `swamprecord::start_swamp(repo = ${JSON.stringify(repoDir)}, swamp = ${
+      JSON.stringify(swampBin)
+    })`
+    : `swamprecord::start_swamp(repo = ${JSON.stringify(repoDir)})`;
+  return [
+    "---",
+    'title: "Swamp session"',
+    "format: html",
+    "---",
+    "",
+    "```{r}",
+    "#| label: swamp-recorder",
+    "#| message: true",
+    "# Arm the swamp session recorder for this project. On first run it installs",
+    "# swamprecord, then records every top-level execution to the `rec` ledger in",
+    "# the swamp control plane. Repo path baked in by `session-write init`.",
+    'if (!requireNamespace("swamprecord", quietly = TRUE)) {',
+    '  message("Installing swamprecord ...")',
+    '  if (requireNamespace("pak", quietly = TRUE)) {',
+    '    pak::pak("vcjdeboer/swamprecord")',
+    '  } else if (requireNamespace("renv", quietly = TRUE)) {',
+    '    renv::install("vcjdeboer/swamprecord")',
+    "  } else {",
+    '    if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")',
+    '    remotes::install_github("vcjdeboer/swamprecord")',
+    "  }",
+    "}",
+    startCall,
+    "```",
+    "",
+    "```{r}",
+    "# Your analysis here — every chunk is recorded to the ledger.",
+    "```",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Persist `SWAMP_REPO_DIR` into the project's `.claude/settings.local.json` so any
+ * later Claude session in this folder reaches the control plane without being told
+ * the path again. Merges — existing keys (and other env vars) survive.
+ */
+async function writeSwampRepoDir(
+  projectDir: string,
+  repoDir: string,
+): Promise<string> {
+  const settingsPath = `${projectDir}/.claude/settings.local.json`;
+  await Deno.mkdir(`${projectDir}/.claude`, { recursive: true });
+  let data: Record<string, unknown> = {};
+  try {
+    const txt = await Deno.readTextFile(settingsPath);
+    data = txt.trim() ? (JSON.parse(txt) as Record<string, unknown>) : {};
+  } catch {
+    data = {};
+  }
+  const env = (data.env && typeof data.env === "object")
+    ? data.env as Record<string, unknown>
+    : {};
+  env.SWAMP_REPO_DIR = repoDir;
+  data.env = env;
+  await Deno.writeTextFile(settingsPath, JSON.stringify(data, null, 2) + "\n");
+  return settingsPath;
+}
+
 /** The session-write model definition. */
 export const model = {
   type: "@vcjdeboer/session-write",
-  version: "2026.06.21.6",
+  version: "2026.06.22.3",
   globalArguments: z.object({}),
   resources: {
     "validation": {
@@ -157,8 +314,83 @@ export const model = {
       lifetime: "infinite",
       garbageCollection: 50,
     },
+    "init": {
+      description:
+        "Record of wiring an R project to the suite (the swamp.qmd written into it)",
+      schema: InitResultSchema,
+      lifetime: "infinite",
+      garbageCollection: 50,
+    },
   },
   methods: {
+    "init": {
+      description:
+        'R-project on-ramp. Run from the project: SWAMP_REPO_DIR=<swamp> swamp model method run writer init --input projectPath="$PWD". Writes swamp.qmd + .claude/settings.local.json; arms swamprecord against the rec ledger. repoDir resolves from --input repoDir, else SWAMP_REPO_DIR env, else cwd (--repo-dir does NOT set it in-method).',
+      arguments: InitArgsSchema,
+      execute: async (
+        args: z.infer<typeof InitArgsSchema>,
+        context: {
+          writeResource: (
+            specName: string,
+            instanceName: string,
+            data: unknown,
+          ) => Promise<{ version: number }>;
+          logger: {
+            info: (msg: string, props?: Record<string, unknown>) => void;
+          };
+        },
+      ): Promise<{ dataHandles: unknown[] }> => {
+        const repoDir = resolveRepoDir(
+          args.repoDir,
+          Deno.env.get("SWAMP_REPO_DIR") ?? "",
+          Deno.cwd(),
+        );
+        const dir = args.projectPath.replace(/\/+$/, "");
+        const target = `${dir}/${args.fileName}`;
+
+        await Deno.mkdir(dir, { recursive: true });
+
+        let exists = false;
+        try {
+          await Deno.stat(target);
+          exists = true;
+        } catch {
+          exists = false;
+        }
+
+        const swampBin = await resolveSwampBin(args.swampBin);
+
+        const written = !exists || args.force;
+        if (written) {
+          await Deno.writeTextFile(target, swampQmd(repoDir, swampBin));
+        }
+
+        // Always refreshed: the pointer that lets later Claude sessions here reach
+        // the control plane without being told the path again.
+        const settings = await writeSwampRepoDir(dir, repoDir);
+
+        const handle = await context.writeResource("init", "result", {
+          projectPath: dir,
+          file: target,
+          repoDir,
+          written,
+          swampBin,
+          settings,
+          timestamp: new Date().toISOString(),
+        });
+
+        context.logger.info(
+          "init: {status} {file} (repo={repo}, swamp={swamp})",
+          {
+            status: written ? "wrote" : "kept existing",
+            file: target,
+            repo: repoDir,
+            swamp: swampBin,
+          },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
     "validate": {
       description:
         "Assert the filled .qmd left the structure frozen and every parameter satisfies its slot contract",
