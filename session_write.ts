@@ -304,7 +304,7 @@ async function writeSwampRepoDir(
 /** The session-write model definition. */
 export const model = {
   type: "@vcjdeboer/session-write",
-  version: "2026.06.22.3",
+  version: "2026.06.22.1",
   globalArguments: z.object({}),
   resources: {
     "validation": {
@@ -323,7 +323,7 @@ export const model = {
     },
   },
   methods: {
-    "init": {
+    init: {
       description:
         'R-project on-ramp. Run from the project: SWAMP_REPO_DIR=<swamp> swamp model method run writer init --input projectPath="$PWD". Writes swamp.qmd + .claude/settings.local.json; arms swamprecord against the rec ledger. repoDir resolves from --input repoDir, else SWAMP_REPO_DIR env, else cwd (--repo-dir does NOT set it in-method).',
       arguments: InitArgsSchema,
@@ -391,7 +391,7 @@ export const model = {
         return { dataHandles: [handle] };
       },
     },
-    "validate": {
+    validate: {
       description:
         "Assert the filled .qmd left the structure frozen and every parameter satisfies its slot contract",
       arguments: ValidateArgsSchema,
